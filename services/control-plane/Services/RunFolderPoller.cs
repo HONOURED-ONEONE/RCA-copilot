@@ -51,9 +51,13 @@ public class RunFolderPoller : BackgroundService
         }
     }
 
-    private async Task PollFolderAsync(CancellationToken stoppingToken)
+    internal async Task PollFolderAsync(CancellationToken stoppingToken)
     {
-        if (!Directory.Exists(_sharedFolderPath)) return;
+        if (!Directory.Exists(_sharedFolderPath))
+        {
+            _logger.LogWarning("Shared folder does not exist: {Path}", _sharedFolderPath);
+            return;
+        }
 
         var readyPath = Path.Combine(_sharedFolderPath, "READY");
         var manifestPath = Path.Combine(_sharedFolderPath, "manifest.json");
@@ -77,8 +81,6 @@ public class RunFolderPoller : BackgroundService
 
             var runData = new RunData { Manifest = manifest! };
             
-            // Dummy loader for JSONL lines parsing for the demo (normally we'd read logs.jsonl, etc.)
-            // We read them if they exist to pass complete payload to Python API.
             runData.Alerts = await LoadJsonlAsync(Path.Combine(_sharedFolderPath, "alerts.jsonl"), stoppingToken);
             runData.Logs = await LoadJsonlAsync(Path.Combine(_sharedFolderPath, "logs.jsonl"), stoppingToken);
             runData.Metrics = await LoadJsonlAsync(Path.Combine(_sharedFolderPath, "metrics.jsonl"), stoppingToken);
@@ -96,7 +98,6 @@ public class RunFolderPoller : BackgroundService
                 _memoryStore.LatestAnalysis = analysisResult;
                 _logger.LogInformation("Successfully processed run {RunId} via Python Engine.", runId);
 
-                // --- Persistence (Task 6/7) ---
                 var finalResult = analysisResult.Final;
                 if (finalResult?.EpistemicState != null)
                 {
@@ -105,7 +106,6 @@ public class RunFolderPoller : BackgroundService
                 }
                 await _ledgerService.RecordEventAsync(runId, "AnalysisComplete", $"Kept: {analysisResult.Kept}");
 
-                // --- CEF Epistemic Falsification Control Loop ---
                 if (finalResult?.EpistemicState != null)
                 {
                     var claims = finalResult.EpistemicState.HealthClaims;
@@ -122,7 +122,6 @@ public class RunFolderPoller : BackgroundService
                         if (ct.Severity == "HIGH")
                         {
                             _logger.LogCritical("CEF: High severity contradiction detected. Triggering automated probe orchestration...");
-                            // In a real system, we would call a ProbeService here.
                         }
                     }
                 }
@@ -133,14 +132,13 @@ public class RunFolderPoller : BackgroundService
                 }
 
                 _memoryStore.ControlPlaneStatus = $"Idle - Last processed {runId}";
+                _lastProcessedRunId = runId; // Only mark as processed if we actually got a result.
             }
             else
             {
-                _logger.LogWarning("Analysis returned null for {RunId}", runId);
-                _memoryStore.ControlPlaneStatus = $"Failed processing {runId}";
+                _logger.LogWarning("Analysis returned null for {RunId}. Will retry on next poll.", runId);
+                _memoryStore.ControlPlaneStatus = $"Failed processing {runId} - will retry";
             }
-
-            _lastProcessedRunId = runId;
         }
     }
 
@@ -149,12 +147,26 @@ public class RunFolderPoller : BackgroundService
         var items = new List<object>();
         if (!File.Exists(filePath)) return items;
 
-        var lines = await File.ReadAllLinesAsync(filePath, cancellationToken);
-        foreach (var line in lines)
+        try
         {
-            if (string.IsNullOrWhiteSpace(line)) continue;
-            var obj = JsonSerializer.Deserialize<object>(line);
-            if (obj != null) items.Add(obj);
+            var lines = await File.ReadAllLinesAsync(filePath, cancellationToken);
+            foreach (var line in lines)
+            {
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                try
+                {
+                    var obj = JsonSerializer.Deserialize<object>(line);
+                    if (obj != null) items.Add(obj);
+                }
+                catch (JsonException ex)
+                {
+                    _logger.LogWarning(ex, "Failed to deserialize line in {Path}", filePath);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to read JSONL file {Path}", filePath);
         }
         return items;
     }

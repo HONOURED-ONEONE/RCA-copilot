@@ -18,6 +18,7 @@ public class LedgerService : ILedgerService
 {
     private readonly string _storagePath = "ledger_data.json";
     private readonly ILogger<LedgerService> _logger;
+    private static readonly SemaphoreSlim _lock = new(1, 1);
 
     public LedgerService(ILogger<LedgerService> logger)
     {
@@ -62,17 +63,33 @@ public class LedgerService : ILedgerService
 
     private async Task AppendToStoreAsync<T>(string key, List<T> newItems)
     {
-        var store = await FullLoadAsync();
-        if (!store.ContainsKey(key)) store[key] = new List<object>();
-        foreach (var item in newItems) store[key].Add(item!);
-        await File.WriteAllTextAsync(_storagePath, JsonSerializer.Serialize(store));
+        await _lock.WaitAsync();
+        try
+        {
+            var store = await FullLoadAsync();
+            if (!store.ContainsKey(key)) store[key] = new List<object>();
+            foreach (var item in newItems) store[key].Add(item!);
+            await File.WriteAllTextAsync(_storagePath, JsonSerializer.Serialize(store));
+        }
+        finally
+        {
+            _lock.Release();
+        }
     }
 
     private async Task<List<T>> ReadFromStoreAsync<T>(string key)
     {
-        var store = await FullLoadAsync();
-        if (!store.ContainsKey(key)) return new List<T>();
-        return JsonSerializer.Deserialize<List<T>>(JsonSerializer.Serialize(store[key])) ?? new List<T>();
+        await _lock.WaitAsync();
+        try
+        {
+            var store = await FullLoadAsync();
+            if (!store.ContainsKey(key)) return new List<T>();
+            return JsonSerializer.Deserialize<List<T>>(JsonSerializer.Serialize(store[key])) ?? new List<T>();
+        }
+        finally
+        {
+            _lock.Release();
+        }
     }
 
     private async Task<Dictionary<string, List<object>>> FullLoadAsync()

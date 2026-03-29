@@ -1,67 +1,81 @@
 # RCA Copilot (Hybrid Architecture)
 
-This repository contains a hybrid RCA analytical system combining a high-performance Python engine with a .NET control plane.
+This repository implements a **Hybrid RCA Copilot** system using a high-performance Python-based analytical engine and a .NET-based production control plane.
 
 ## Architecture Overview
 
 1.  **Python Analytical Engine (`api.py`)**: FastAPI service that executes the core RCA pipeline, AOGC adaptation, and Continuous Epistemic Falsification (CEF).
 2.  **NET Control Plane (`services/control-plane/`)**: Production orchestrator that polls a shared telemetry folder and delegates analysis to the Python API.
 3.  **Streamlit Dashboard (`app.py`)**: UI for visualizing RCA results, health claims, contradictions, and the falsification ledger.
+4.  **Shared Run Folder**: A common staging area for telemetry bundles (alerts, logs, metrics).
 
-## Startup Order (Local Development)
+---
 
-To run the full hybrid system:
+## Getting Started
+
+### 1. Prerequisites
+- Python 3.9+
+- .NET 8 SDK
+- Streamlit
+
+### 2. Startup Order (Local Development)
 
 1.  **Start Python Analytical Engine**:
     ```bash
-    # From project root
-    python api.py
+    pip install -r requirements.txt
+    PYTHONPATH=. python api.py
     ```
     API will be available at `http://localhost:8000`.
 
 2.  **Start .NET Control Plane**:
     ```bash
-    cd services/control-plane
-    dotnet run
+    dotnet run --project services/control-plane/ControlPlane.csproj
     ```
     Control Plane will be available at `http://localhost:5000`.
 
 3.  **Start Streamlit Dashboard**:
     ```bash
-    # From project root
     streamlit run app.py
     ```
     UI will be available at `http://localhost:8501`.
 
-## End-to-End Smoke Verification
+---
 
-A local smoke test is provided to verify the analytical engine, history recording, and persistent graph population.
+## Testing & Verification
 
+### 1. Python Unit & Integration Tests
+Run the comprehensive suite covering schemas, orchestrator, and history:
+```bash
+PYTHONPATH=. pytest tests/
+```
+
+### 2. .NET Unit & Integration Tests
+Run the control plane tests covering ledger persistence and polling logic:
+```bash
+dotnet test services/control-plane/ControlPlane.Tests/ControlPlane.Tests.csproj
+```
+
+### 3. Smoke Verification (Analytical Path Only)
+Verify the core Python analytical path directly:
 ```bash
 python tests/reproduce_smoke.py
 ```
 
-This script:
-1.  Loads a sample run from `shared_demo_root/current/`.
-2.  Executes the full AOGC + CEF pipeline.
-3.  Verifies that `rca_history.jsonl` and `reliability_graph.json` are populated.
+### 4. Hybrid Flow Verification (Full Proof)
+Verify the full end-to-end lifecycle (Polling -> Analysis -> Persistence -> API):
+1. Ensure both the Python API and .NET Control Plane are running.
+2. Run the verification script:
+   ```bash
+   python tests/verify_hybrid.py
+   ```
 
-## Testing
+---
 
-### Python Tests
-```bash
-pytest
-```
+## Key Endpoints
+- **Python**: `http://localhost:8000/health`, `/analyze/run`
+- **.NET**: `http://localhost:5000/api/Health`, `/api/Cef/latest-analysis`, `/api/Cef/claims`, `/api/Cef/contradictions`, `/api/Cef/ledger`
 
-### .NET Tests
-```bash
-cd services/control-plane/ControlPlane.Tests
-dotnet test
-```
-
-## Telemetry Input Specification
-
-The control plane watches `shared_demo_root/current/` for:
-- `READY`: Marker file indicating a complete dataset.
-- `manifest.json`: Metadata (run_id, scenario, variant).
-- `alerts.jsonl`, `logs.jsonl`, `metrics.jsonl`, `traces.jsonl`, `changes.jsonl`: Telemetry data in JSONL format.
+## Known Limitations
+- The system is a prototype and assumes a local shared folder for demo purposes.
+- Persistence uses local JSON files (`ledger_data.json`, `rca_history.jsonl`, `reliability_graph.json`).
+- .NET Control Plane polling interval is 2 seconds.

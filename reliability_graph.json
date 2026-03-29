@@ -4,18 +4,18 @@
       "name": "auth-svc",
       "first_seen": "smoke-run-001",
       "last_seen": "smoke-run-001",
-      "observation_count": 1,
+      "observation_count": 4,
       "implicated_count": 0,
-      "low_confidence_count": 0,
+      "low_confidence_count": 3,
       "anomaly_associated_count": 0
     },
     "frontend": {
       "name": "frontend",
       "first_seen": "smoke-run-001",
       "last_seen": "smoke-run-001",
-      "observation_count": 1,
+      "observation_count": 4,
       "implicated_count": 0,
-      "low_confidence_count": 0,
+      "low_confidence_count": 3,
       "anomaly_associated_count": 0
     }
   },

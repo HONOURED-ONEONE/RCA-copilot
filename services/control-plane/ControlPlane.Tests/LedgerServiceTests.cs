@@ -20,10 +20,31 @@ public class LedgerServiceTests
         var service = new LedgerService(_loggerMock.Object);
 
         await service.RecordEventAsync("run-1", "TestEvent", "Details");
+        await service.RecordEventAsync("run-1", "TestEvent2", "Details2");
 
         Assert.True(File.Exists(storagePath));
-        var content = await File.ReadAllTextAsync(storagePath);
-        Assert.Contains("TestEvent", content);
+        var entries = await service.GetLedgerEntriesAsync();
+        Assert.Equal(2, entries.Count);
+        Assert.Contains(entries, e => e.EventType == "TestEvent");
+        Assert.Contains(entries, e => e.EventType == "TestEvent2");
+
+        if (File.Exists(storagePath)) File.Delete(storagePath);
+    }
+
+    [Fact]
+    public async Task RecordClaimsAsync_StoresClaims()
+    {
+        var storagePath = "ledger_data.json";
+        if (File.Exists(storagePath)) File.Delete(storagePath);
+
+        var service = new LedgerService(_loggerMock.Object);
+        var claims = new List<HealthClaim> { new HealthClaim { Service = "svc1", Type = "HEALTHY", Confidence = 0.9 } };
+
+        await service.RecordClaimsAsync("run-2", claims);
+
+        var stored = await service.GetClaimsAsync();
+        Assert.Single(stored);
+        Assert.Equal("svc1", stored[0].Service);
 
         if (File.Exists(storagePath)) File.Delete(storagePath);
     }
